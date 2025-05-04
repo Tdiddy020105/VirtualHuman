@@ -56,5 +56,5 @@
         "temp/": true,
         "Temp/": true
     },
-    "dotnet.defaultSolution": "Virtual Human.sln"
+    "dotnet.defaultSolution": "VirtualHuman.sln"
 }

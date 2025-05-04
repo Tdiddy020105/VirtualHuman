@@ -93,7 +93,7 @@ public class PeterOrb : MonoBehaviour
         }
     }
 
-    IEnumerator ScalePulseDuringSpeech(AudioClip clip)
+    public IEnumerator ScalePulseDuringSpeech(AudioClip clip)
     {
         Debug.Log("📡 Smooth ScalePulse running...");
         int sampleSize = 512;
