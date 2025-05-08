@@ -4,81 +4,51 @@ using UnityEngine;
 
 public static class SaveWavUtility
 {
-    const int HEADER_SIZE = 44;
-
-    public static byte[] FromAudioClip(string name, AudioClip clip, bool trimSilence = false)
+    public static byte[] FromAudioClip(string filename, AudioClip clip)
     {
-        if (trimSilence)
+        using (MemoryStream stream = new MemoryStream())
         {
-            clip = TrimSilence(clip, 0.01f);
+            WriteWavFile(stream, clip);
+            byte[] wavData = stream.ToArray();
+            Debug.Log($"WAV Data Length: {wavData.Length} bytes");
+            return wavData;
         }
-
-        var samples = new float[clip.samples];
-        clip.GetData(samples, 0);
-
-        byte[] wav = ConvertAudioClipToWav(samples, clip.channels, clip.frequency);
-        return wav;
     }
 
-    private static byte[] ConvertAudioClipToWav(float[] samples, int channels, int sampleRate)
+    private static void WriteWavFile(Stream stream, AudioClip clip)
     {
-        MemoryStream stream = new MemoryStream();
-        BinaryWriter writer = new BinaryWriter(stream);
-
-        int sampleCount = samples.Length;
-
-        int byteRate = sampleRate * channels * 2;
-
-        // Write header
-        writer.Write(System.Text.Encoding.ASCII.GetBytes("RIFF"));
-        writer.Write(HEADER_SIZE + sampleCount * 2 - 8);
-        writer.Write(System.Text.Encoding.ASCII.GetBytes("WAVE"));
-        writer.Write(System.Text.Encoding.ASCII.GetBytes("fmt "));
-        writer.Write(16);
-        writer.Write((short)1);
-        writer.Write((short)channels);
-        writer.Write(sampleRate);
-        writer.Write(byteRate);
-        writer.Write((short)(channels * 2));
-        writer.Write((short)16);
-        writer.Write(System.Text.Encoding.ASCII.GetBytes("data"));
-        writer.Write(sampleCount * 2);
-
-        // Write samples
-        foreach (var sample in samples)
+        using (BinaryWriter writer = new BinaryWriter(stream))
         {
-            short s = (short)(Mathf.Clamp(sample, -1f, 1f) * short.MaxValue);
-            writer.Write(s);
+            const int headerSize = 44;
+            int fileSize = clip.samples * clip.channels * 2 + headerSize;
+
+            // Write RIFF header
+            writer.Write(System.Text.Encoding.UTF8.GetBytes("RIFF"));
+            writer.Write(fileSize - 8);
+            writer.Write(System.Text.Encoding.UTF8.GetBytes("WAVE"));
+            writer.Write(System.Text.Encoding.UTF8.GetBytes("fmt "));
+            writer.Write(16); // PCM chunk size
+            writer.Write((short)1); // Audio format: PCM
+            writer.Write((short)clip.channels);
+            writer.Write(16000); // Sample rate
+            writer.Write(16000 * clip.channels * 2); // Byte rate
+            writer.Write((short)(clip.channels * 2)); // Block align
+            writer.Write((short)16); // Bits per sample
+
+            // Write data chunk
+            writer.Write(System.Text.Encoding.UTF8.GetBytes("data"));
+            writer.Write(clip.samples * clip.channels * 2);
+
+            float[] samples = new float[clip.samples * clip.channels];
+            clip.GetData(samples, 0);
+
+            foreach (float sample in samples)
+            {
+                short intSample = (short)(Mathf.Clamp(sample, -1f, 1f) * 32767);
+                writer.Write(intSample);
+            }
         }
 
-        writer.Flush();
-        writer.Close();
-
-        return stream.ToArray();
-    }
-
-    private static AudioClip TrimSilence(AudioClip clip, float min)
-    {
-        float[] samples = new float[clip.samples];
-        clip.GetData(samples, 0);
-
-        int start = 0;
-        int end = samples.Length - 1;
-
-        for (; start < samples.Length; start++)
-            if (Mathf.Abs(samples[start]) > min)
-                break;
-
-        for (; end > 0; end--)
-            if (Mathf.Abs(samples[end]) > min)
-                break;
-
-        int length = end - start + 1;
-        float[] trimmed = new float[length];
-        Array.Copy(samples, start, trimmed, 0, length);
-
-        AudioClip newClip = AudioClip.Create("trimmed", length, clip.channels, clip.frequency, false);
-        newClip.SetData(trimmed, 0);
-        return newClip;
+        Debug.Log("✅ WAV written as 16-bit PCM, 16000 Hz.");
     }
 }

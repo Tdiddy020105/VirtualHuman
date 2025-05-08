@@ -38,14 +38,18 @@ public class MicInputUploader : MonoBehaviour
 
         Debug.Log("🎙️ Recording stopped. Converting to WAV...");
 
-        byte[] wavData = SaveWavUtility.FromAudioClip("mic_recording", recordedClip, false);
+        byte[] wavData = SaveWavUtility.FromAudioClip("mic_input", recordedClip);
 
         StartCoroutine(SendWavToFlask(wavData));
     }
 
     IEnumerator SendWavToFlask(byte[] wavData)
     {
-        Debug.Log("📤 Uploading WAV to Flask...");
+        Debug.Log($"📤 Sending WAV to Flask. Size: {wavData.Length} bytes");
+
+        string tempPath = Path.Combine(Application.persistentDataPath, "mic_input.wav");
+        File.WriteAllBytes(tempPath, wavData);
+        Debug.Log($"WAV saved at: {tempPath}");
 
         WWWForm form = new WWWForm();
         form.AddBinaryData("audio", wavData, "mic_input.wav", "audio/wav");
@@ -59,29 +63,55 @@ public class MicInputUploader : MonoBehaviour
             yield break;
         }
 
-        Debug.Log("✅ Flask responded. Saving WAV...");
+        Debug.Log($"✅ Flask responded: {request.downloadHandler.text}");
 
-        string path = Path.Combine(Application.persistentDataPath, "peter_response.wav");
-        File.WriteAllBytes(path, request.downloadHandler.data);
+        // Parse the JSON response
+        EmotionResponse response = JsonUtility.FromJson<EmotionResponse>(request.downloadHandler.text);
 
-        using (UnityWebRequest www = UnityWebRequestMultimedia.GetAudioClip("file://" + path, AudioType.WAV))
+        if (response != null)
         {
-            yield return www.SendWebRequest();
+            Debug.Log($"🧠 Emotion received: {response.emotion}");
+            Debug.Log($"🎧 Audio path received: {response.audio_path}");
 
-            if (www.result != UnityWebRequest.Result.Success)
-            {
-                Debug.LogError("❌ Failed to load audio: " + www.error);
-                yield break;
-            }
-
-            AudioClip clip = DownloadHandlerAudioClip.GetContent(www);
-            audioSource.clip = clip;
-            audioSource.Play();
-
+            // Update the emotion state in PeterOrb
             if (peterOrb != null)
             {
-                StartCoroutine(peterOrb.ScalePulseDuringSpeech(clip));
+                peterOrb.SetEmotion(response.emotion);
+            }
+
+            string fullPath = response.audio_path;
+
+            using (UnityWebRequest www = UnityWebRequestMultimedia.GetAudioClip("file://" + fullPath, AudioType.WAV))
+            {
+                yield return www.SendWebRequest();
+
+                if (www.result != UnityWebRequest.Result.Success)
+                {
+                    Debug.LogError("❌ Failed to load audio: " + www.error);
+                    yield break;
+                }
+
+                Debug.Log("✅ Audio successfully loaded, playing now.");
+                AudioClip clip = DownloadHandlerAudioClip.GetContent(www);
+                audioSource.clip = clip;
+                audioSource.Play();
+
+                if (peterOrb != null)
+                {
+                    StartCoroutine(peterOrb.ScalePulseDuringSpeech(clip));
+                }
             }
         }
+        else
+        {
+            Debug.LogError("❌ Failed to parse JSON response.");
+        }
+    }
+
+    [System.Serializable]
+    public class EmotionResponse
+    {
+        public string emotion;
+        public string audio_path;
     }
 }

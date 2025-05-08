@@ -8,7 +8,7 @@ public class PeterOrb : MonoBehaviour
     public string flaskURL = "http://localhost:5000/speak";
     public AudioSource audioSource;
     public string testInput = "Who are you?";
-    public Transform orbTransform; // assign your orb object here
+    public Transform orbTransform;
 
     private bool isSpeaking = false;
     private Vector3 baseScale;
@@ -18,11 +18,33 @@ public class PeterOrb : MonoBehaviour
     public float floatAmplitude = 0.1f;
     public float floatFrequency = 1f;
 
+    public enum EmotionState { Calm, Confused, Angry, Curious }
+
+    [Header("Emotion Settings")]
+    public EmotionState currentEmotion = EmotionState.Calm;
+    public Light orbLight;
+    public Color calmColor = Color.blue;
+    public Color confusedColor = Color.yellow;
+    public Color angryColor = Color.red;
+    public Color curiousColor = Color.green;
+    private Color targetColor;
+    private float colorLerpSpeed = 2f;
+
+    [Header("Material Settings")]
+    public Material orbMaterial;
+
+
     void Start()
     {
         if (orbTransform == null) orbTransform = transform;
         baseScale = orbTransform.localScale;
         basePosition = orbTransform.position;
+
+        if (orbLight != null)
+        {
+            UpdateOrbColor();
+            orbLight.color = targetColor;
+        }
     }
 
     void Update()
@@ -32,6 +54,12 @@ public class PeterOrb : MonoBehaviour
         {
             float floatOffset = Mathf.Sin(Time.time * floatFrequency) * floatAmplitude;
             orbTransform.position = basePosition + new Vector3(0f, floatOffset, 0f);
+        }
+
+        // Color lerping
+        if (orbLight != null)
+        {
+            orbLight.color = Color.Lerp(orbLight.color, targetColor, Time.deltaTime * colorLerpSpeed);
         }
     }
 
@@ -61,11 +89,29 @@ public class PeterOrb : MonoBehaviour
             yield break;
         }
 
-        Debug.Log("✅ Got WAV file");
-        string path = Path.Combine(Application.persistentDataPath, "peter_response.wav");
-        File.WriteAllBytes(path, request.downloadHandler.data);
+        Debug.Log("✅ Got response from Flask");
 
-        using (UnityWebRequest www = UnityWebRequestMultimedia.GetAudioClip("file://" + path, AudioType.WAV))
+
+        string jsonResponse = request.downloadHandler.text;
+        EmotionResponse response = JsonUtility.FromJson<EmotionResponse>(jsonResponse);
+
+        if (response != null)
+        {
+            Debug.Log($"🧠 Emotion received: {response.emotion}");
+
+            // Update emotion
+            SetEmotion(response.emotion);
+
+            // Play audio
+            StartCoroutine(PlayAudio(response.audio_path));
+        }
+    }
+
+    IEnumerator PlayAudio(string audioPath)
+    {
+        Debug.Log($"🎧 Attempting to play audio from path: {audioPath}");
+
+        using (UnityWebRequest www = UnityWebRequestMultimedia.GetAudioClip("file://" + audioPath, AudioType.WAV))
         {
             yield return www.SendWebRequest();
 
@@ -76,20 +122,81 @@ public class PeterOrb : MonoBehaviour
             }
 
             AudioClip clip = DownloadHandlerAudioClip.GetContent(www);
-            if (clip == null)
-            {
-                Debug.LogError("❌ Loaded AudioClip is null!");
-                yield break;
-            }
-
             audioSource.clip = clip;
             audioSource.Play();
-            isSpeaking = true;
+
             StartCoroutine(ScalePulseDuringSpeech(clip));
-            yield return new WaitWhile(() => audioSource.isPlaying);
-            isSpeaking = false;
-            orbTransform.localScale = baseScale;
-            Debug.Log("🛑 Done speaking.");
+        }
+    }
+
+    [System.Serializable]
+    public class EmotionResponse
+    {
+        public string emotion;
+        public string audio_path;
+    }
+
+    public void SetEmotion(string emotion)
+    {
+        EmotionState newEmotion = EmotionState.Calm;
+
+        switch (emotion.ToLower())
+        {
+            case "angry":
+                newEmotion = EmotionState.Angry;
+                break;
+            case "confused":
+                newEmotion = EmotionState.Confused;
+                break;
+            case "curious":
+                newEmotion = EmotionState.Curious;
+                break;
+            case "calm":
+            default:
+                newEmotion = EmotionState.Calm;
+                break;
+        }
+
+        currentEmotion = newEmotion;
+        UpdateOrbColor();
+    }
+
+    private void UpdateOrbColor()
+    {
+        switch (currentEmotion)
+        {
+            case EmotionState.Calm:
+                targetColor = calmColor;
+                break;
+            case EmotionState.Confused:
+                targetColor = confusedColor;
+                break;
+            case EmotionState.Angry:
+                targetColor = angryColor;
+                break;
+            case EmotionState.Curious:
+                targetColor = curiousColor;
+                break;
+        }
+
+        Debug.Log($"🔵 Emotion changed to {currentEmotion}. Target color: {targetColor}");
+
+        // Update Light Color
+        if (orbLight != null)
+        {
+            orbLight.color = targetColor;
+        }
+
+        // Update Material Emission Color (boosted for glow effect)
+        if (orbMaterial != null)
+        {
+            float glowIntensity = 3.0f;  // Adjust to control the glow strength
+            Color emissionColor = targetColor * glowIntensity;
+            orbMaterial.SetColor("_EmissionColor", emissionColor);
+            Debug.Log($"🌟 Emission Color Updated: {emissionColor}");
+
+            // Apply dynamic GI update to ensure the glow is visible
+            DynamicGI.SetEmissive(orbTransform.GetComponent<Renderer>(), emissionColor);
         }
     }
 
@@ -120,10 +227,9 @@ public class PeterOrb : MonoBehaviour
             }
 
             float rmsValue = Mathf.Sqrt(sum / sampleSize);
-            float scaleBoost = Mathf.Clamp(rmsValue * 20f, 0f, 0.2f); // 🧠 reduced range
+            float scaleBoost = Mathf.Clamp(rmsValue * 20f, 0f, 0.2f); 
             Vector3 targetScale = baseScale + Vector3.one * scaleBoost;
 
-            // 🌀 Smoothly transition to the new scale
             currentScale = Vector3.Lerp(currentScale, targetScale, 0.2f);
             orbTransform.localScale = currentScale;
 
@@ -140,6 +246,11 @@ public class PeterOrb : MonoBehaviour
 
         orbTransform.localScale = baseScale;
         Debug.Log("🛑 Smooth ScalePulse done.");
+    }
+
+    private void OnValidate()
+    {
+        UpdateOrbColor();
     }
 
 }
