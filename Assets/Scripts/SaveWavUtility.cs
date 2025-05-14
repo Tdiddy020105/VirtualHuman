@@ -1,4 +1,3 @@
-using System;
 using System.IO;
 using UnityEngine;
 
@@ -9,9 +8,7 @@ public static class SaveWavUtility
         using (MemoryStream stream = new MemoryStream())
         {
             WriteWavFile(stream, clip);
-            byte[] wavData = stream.ToArray();
-            Debug.Log($"WAV Data Length: {wavData.Length} bytes");
-            return wavData;
+            return stream.ToArray();
         }
     }
 
@@ -19,23 +16,20 @@ public static class SaveWavUtility
     {
         using (BinaryWriter writer = new BinaryWriter(stream))
         {
-            const int headerSize = 44;
+            int headerSize = 44;
             int fileSize = clip.samples * clip.channels * 2 + headerSize;
 
-            // Write RIFF header
             writer.Write(System.Text.Encoding.UTF8.GetBytes("RIFF"));
             writer.Write(fileSize - 8);
             writer.Write(System.Text.Encoding.UTF8.GetBytes("WAVE"));
             writer.Write(System.Text.Encoding.UTF8.GetBytes("fmt "));
-            writer.Write(16); // PCM chunk size
-            writer.Write((short)1); // Audio format: PCM
+            writer.Write(16);
+            writer.Write((short)1);
             writer.Write((short)clip.channels);
-            writer.Write(16000); // Sample rate
-            writer.Write(16000 * clip.channels * 2); // Byte rate
-            writer.Write((short)(clip.channels * 2)); // Block align
-            writer.Write((short)16); // Bits per sample
-
-            // Write data chunk
+            writer.Write(16000);
+            writer.Write(16000 * clip.channels * 2);
+            writer.Write((short)(clip.channels * 2));
+            writer.Write((short)16);
             writer.Write(System.Text.Encoding.UTF8.GetBytes("data"));
             writer.Write(clip.samples * clip.channels * 2);
 
@@ -44,11 +38,9 @@ public static class SaveWavUtility
 
             foreach (float sample in samples)
             {
-                short intSample = (short)(Mathf.Clamp(sample, -1f, 1f) * 32767);
+                short intSample = (short)(sample * 32767);
                 writer.Write(intSample);
             }
         }
-
-        Debug.Log("✅ WAV written as 16-bit PCM, 16000 Hz.");
     }
 }

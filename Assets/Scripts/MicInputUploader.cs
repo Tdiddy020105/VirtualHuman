@@ -47,14 +47,11 @@ public class MicInputUploader : MonoBehaviour
     {
         Debug.Log($"📤 Sending WAV to Flask. Size: {wavData.Length} bytes");
 
-        string tempPath = Path.Combine(Application.persistentDataPath, "mic_input.wav");
-        File.WriteAllBytes(tempPath, wavData);
-        Debug.Log($"WAV saved at: {tempPath}");
+        UnityWebRequest request = new UnityWebRequest(flaskURL, "POST");
+        request.uploadHandler = new UploadHandlerRaw(wavData);
+        request.downloadHandler = new DownloadHandlerBuffer();
+        request.SetRequestHeader("Content-Type", "audio/wav");
 
-        WWWForm form = new WWWForm();
-        form.AddBinaryData("audio", wavData, "mic_input.wav", "audio/wav");
-
-        UnityWebRequest request = UnityWebRequest.Post(flaskURL, form);
         yield return request.SendWebRequest();
 
         if (request.result != UnityWebRequest.Result.Success)
