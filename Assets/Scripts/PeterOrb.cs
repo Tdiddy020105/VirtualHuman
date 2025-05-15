@@ -107,7 +107,7 @@ public class PeterOrb : MonoBehaviour
         }
     }
 
-    IEnumerator PlayAudio(string audioPath)
+    public IEnumerator PlayAudio(string audioPath)
     {
         Debug.Log($"🎧 Attempting to play audio from path: {audioPath}");
 
@@ -253,4 +253,9 @@ public class PeterOrb : MonoBehaviour
         UpdateOrbColor();
     }
 
+    public void TalkToPeter(string input)
+    {
+        Debug.Log($"🧠 TalkToPeter(text): {input}");
+        StartCoroutine(SendTextAndPlayAudio(input));
+    }
 }

@@ -14,7 +14,7 @@ public class PeterResponse
 public class OuijaBoard : MonoBehaviour
 {
     public Text previewText;
-    public AudioSource audioSource;
+    public PeterOrb peterOrb; // 👈 Connect this in Inspector
 
     private string currentMessage = "";
 
@@ -74,7 +74,7 @@ public class OuijaBoard : MonoBehaviour
 
     IEnumerator SendToFlask(string message)
     {
-        string json = "{\"text\": \"" + message + "\"}";
+        string json = "{\"text\": \"" + message.Replace("\"", "\\\"") + "\"}";
         byte[] bodyRaw = System.Text.Encoding.UTF8.GetBytes(json);
 
         UnityWebRequest req = new UnityWebRequest("http://localhost:5000/speak", "POST");
@@ -93,33 +93,14 @@ public class OuijaBoard : MonoBehaviour
             Debug.Log("✅ Flask response: " + req.downloadHandler.text);
 
             PeterResponse response = JsonUtility.FromJson<PeterResponse>(req.downloadHandler.text);
-            StartCoroutine(PlayPeterAudio(response.audio_path));
-        }
-    }
-
-    IEnumerator PlayPeterAudio(string audioPath)
-    {
-        string path = "file://" + audioPath;
-
-        UnityWebRequest www = UnityWebRequestMultimedia.GetAudioClip(path, AudioType.WAV);
-        yield return www.SendWebRequest();
-
-        if (www.result != UnityWebRequest.Result.Success)
-        {
-            Debug.LogError("❌ Audio load error: " + www.error);
-        }
-        else
-        {
-            AudioClip clip = DownloadHandlerAudioClip.GetContent(www);
-
-            if (audioSource != null)
+            if (peterOrb != null)
             {
-                audioSource.clip = clip;
-                audioSource.Play();
+                peterOrb.SetEmotion(response.emotion);
+                StartCoroutine(peterOrb.PlayAudio(response.audio_path)); // 👈 This pulses and plays audio
             }
             else
             {
-                AudioSource.PlayClipAtPoint(clip, Vector3.zero);
+                Debug.LogWarning("⚠️ No PeterOrb assigned. Audio won't play or pulse.");
             }
         }
     }
