@@ -2,6 +2,7 @@ using System.Collections;
 using UnityEngine;
 using UnityEngine.Networking;
 using System.IO;
+using UnityEngine.UI;
 
 public class MicInputUploader : MonoBehaviour
 {
@@ -12,6 +13,21 @@ public class MicInputUploader : MonoBehaviour
     private AudioClip recordedClip;
     private string micDevice;
     private bool isRecording = false;
+
+    public Button startButton;
+    public Button stopButton;
+
+    void Start()
+    {
+        if (startButton != null)
+            startButton.onClick.AddListener(StartMicRecording);
+
+        if (stopButton != null)
+            stopButton.onClick.AddListener(StopRecordingAndSend);
+
+        if (startButton != null) startButton.interactable = true;
+        if (stopButton != null) stopButton.interactable = false;
+    }
 
     [ContextMenu("Start Mic Recording")]
     public void StartMicRecording()
@@ -26,6 +42,9 @@ public class MicInputUploader : MonoBehaviour
         recordedClip = Microphone.Start(micDevice, false, 5, 16000);
         isRecording = true;
         Debug.Log("🎙️ Recording started...");
+
+        if (startButton != null) startButton.interactable = false;
+        if (stopButton != null) stopButton.interactable = true;
     }
 
     [ContextMenu("Stop and Send")]
@@ -38,8 +57,10 @@ public class MicInputUploader : MonoBehaviour
 
         Debug.Log("🎙️ Recording stopped. Converting to WAV...");
 
-        byte[] wavData = SaveWavUtility.FromAudioClip("mic_input", recordedClip);
+        if (startButton != null) startButton.interactable = true;
+        if (stopButton != null) stopButton.interactable = false;
 
+        byte[] wavData = SaveWavUtility.FromAudioClip("mic_input", recordedClip);
         StartCoroutine(SendWavToFlask(wavData));
     }
 
