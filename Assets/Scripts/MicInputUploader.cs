@@ -1,13 +1,12 @@
+using System;
 using System.Collections;
 using UnityEngine;
 using UnityEngine.Networking;
-using System.IO;
 using UnityEngine.UI;
 
 public class MicInputUploader : MonoBehaviour
 {
     public string flaskURL = "http://localhost:5000/speak";
-    public AudioSource audioSource;
     public PeterOrb peterOrb;
 
     private AudioClip recordedClip;
@@ -21,7 +20,6 @@ public class MicInputUploader : MonoBehaviour
     {
         if (startButton != null)
             startButton.onClick.AddListener(StartMicRecording);
-
         if (stopButton != null)
             stopButton.onClick.AddListener(StopRecordingAndSend);
 
@@ -54,7 +52,6 @@ public class MicInputUploader : MonoBehaviour
 
         Microphone.End(micDevice);
         isRecording = false;
-
         Debug.Log("🎙️ Recording stopped. Converting to WAV...");
 
         if (startButton != null) startButton.interactable = true;
@@ -66,8 +63,6 @@ public class MicInputUploader : MonoBehaviour
 
     IEnumerator SendWavToFlask(byte[] wavData)
     {
-        Debug.Log($"📤 Sending WAV to Flask. Size: {wavData.Length} bytes");
-
         UnityWebRequest request = new UnityWebRequest(flaskURL, "POST");
         request.uploadHandler = new UploadHandlerRaw(wavData);
         request.downloadHandler = new DownloadHandlerBuffer();
@@ -81,55 +76,42 @@ public class MicInputUploader : MonoBehaviour
             yield break;
         }
 
-        Debug.Log($"✅ Flask responded: {request.downloadHandler.text}");
-
-        // Parse the JSON response
         EmotionResponse response = JsonUtility.FromJson<EmotionResponse>(request.downloadHandler.text);
 
-        if (response != null)
+        if (response != null && !string.IsNullOrEmpty(response.audio_base64))
         {
-            Debug.Log($"🧠 Emotion received: {response.emotion}");
-            Debug.Log($"🎧 Audio path received: {response.audio_path}");
+            Debug.Log($"🧠 Emotion: {response.emotion}");
+            Debug.Log($"🤖 Text: {response.response}");
 
-            // Update the emotion state in PeterOrb
             if (peterOrb != null)
-            {
                 peterOrb.SetEmotion(response.emotion);
-            }
 
-            string fullPath = response.audio_path;
-
-            using (UnityWebRequest www = UnityWebRequestMultimedia.GetAudioClip("file://" + fullPath, AudioType.WAV))
+            // ✅ NEW: Play audio with FMOD
+            var audioPlayer = FindObjectOfType<PeterAudioPlayer>();
+            if (audioPlayer != null)
             {
-                yield return www.SendWebRequest();
-
-                if (www.result != UnityWebRequest.Result.Success)
-                {
-                    Debug.LogError("❌ Failed to load audio: " + www.error);
-                    yield break;
-                }
-
-                Debug.Log("✅ Audio successfully loaded, playing now.");
-                AudioClip clip = DownloadHandlerAudioClip.GetContent(www);
-                audioSource.clip = clip;
-                audioSource.Play();
-
-                if (peterOrb != null)
-                {
-                    StartCoroutine(peterOrb.ScalePulseDuringSpeech(clip));
-                }
+                audioPlayer.PlayBase64MP3(response.audio_base64);
             }
+            else
+            {
+                Debug.LogError("❌ PeterAudioPlayer not found in scene.");
+            }
+
+            // Optional: trigger visual pulse
+            if (peterOrb != null)
+                peterOrb.StartOrbPulse();
         }
         else
         {
-            Debug.LogError("❌ Failed to parse JSON response.");
+            Debug.LogError("❌ Invalid response or missing audio.");
         }
     }
 
-    [System.Serializable]
+    [Serializable]
     public class EmotionResponse
     {
         public string emotion;
-        public string audio_path;
+        public string response;
+        public string audio_base64;
     }
 }

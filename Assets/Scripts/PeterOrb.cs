@@ -253,4 +253,41 @@ public class PeterOrb : MonoBehaviour
         UpdateOrbColor();
     }
 
+    public void StartOrbPulse()
+    {
+        StartCoroutine(ScalePulseDuringFMODPlayback());
+    }
+
+    public IEnumerator ScalePulseDuringFMODPlayback()
+    {
+        Debug.Log("📡 FMOD ScalePulse running...");
+
+        var player = FindObjectOfType<PeterAudioPlayer>();
+        if (player == null)
+        {
+            Debug.LogWarning("❌ PeterAudioPlayer not found.");
+            yield break;
+        }
+
+        Vector3 currentScale = baseScale;
+
+        while (player.IsPlaying())
+        {
+            float fakeRMS = Mathf.PingPong(Time.time * 2f, 0.2f); // animated pulsing
+            Vector3 targetScale = baseScale + Vector3.one * fakeRMS;
+            currentScale = Vector3.Lerp(currentScale, targetScale, 0.3f);
+            orbTransform.localScale = currentScale;
+            yield return null;
+        }
+
+        // Smooth return to base
+        while (Vector3.Distance(orbTransform.localScale, baseScale) > 0.001f)
+        {
+            orbTransform.localScale = Vector3.Lerp(orbTransform.localScale, baseScale, 0.1f);
+            yield return null;
+        }
+
+        orbTransform.localScale = baseScale;
+        Debug.Log("🛑 FMOD ScalePulse done.");
+    }
 }
