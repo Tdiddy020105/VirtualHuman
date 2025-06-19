@@ -8,13 +8,8 @@ using TMPro;
 
 public class MicInputUploader : MonoBehaviour
 {
-    [Header("Server + Orb")]
+    [Header("Server")]
     public string flaskURL = "http://localhost:5000/speak";
-    public PeterOrb peterOrb;
-
-    [Header("UI – main buttons")]
-    public Button startButton;
-    public Button stopButton;
 
     [Header("UI – confirm dialog")]
     public GameObject confirmPanel;
@@ -31,15 +26,18 @@ public class MicInputUploader : MonoBehaviour
     public float endDuration = 2f;
 
     [Header("Recording settings")]
-    public int recordSeconds = 5;
     public int sampleRate = 16000;
+    public float startThreshold = 0.01f;
+    public float stopThreshold = 0.005f;
+    public float silenceDuration = 1.0f;
 
     private AudioClip recordedClip;
     private string micDevice;
     private bool isRecording = false;
+    private float silenceTimer = 0f;
 
     [Header("UI – Mic Icon")]
-    public Image micIcon; 
+    public Image micIcon;
 
     [Header("Memory Thinking UI")]
     public CanvasGroup memoryPanelGroup;
@@ -47,14 +45,77 @@ public class MicInputUploader : MonoBehaviour
 
     void Start()
     {
-        if (startButton) startButton.onClick.AddListener(() => StartCoroutine(RecordAndSend()));
-        if (stopButton)  stopButton.onClick.AddListener(OpenConfirm);
-        if (yesButton)   yesButton.onClick.AddListener(KillPeter);
+        if (yesButton) yesButton.onClick.AddListener(KillPeter);
         if (cancelButton) cancelButton.onClick.AddListener(() => confirmPanel.SetActive(false));
 
         confirmPanel?.SetActive(false);
         memoryPanelGroup?.gameObject.SetActive(false);
-        subtitleText.alpha = 0; // Make sure subtitle starts hidden
+        subtitleText.alpha = 0;
+
+        micDevice = Microphone.devices[0];
+        recordedClip = Microphone.Start(micDevice, true, 10, sampleRate);
+    }
+
+    void Update()
+    {
+        if (!Microphone.IsRecording(micDevice)) return;
+
+        float[] samples = new float[128];
+        int micPos = Microphone.GetPosition(micDevice) - samples.Length;
+        if (micPos < 0) return;
+
+        recordedClip.GetData(samples, micPos);
+        float volume = GetAverageVolume(samples);
+
+        if (!isRecording && volume > startThreshold)
+        {
+            Debug.Log("🎤 Voice detected. Start recording.");
+            isRecording = true;
+            silenceTimer = 0f;
+            if (micIcon != null) micIcon.color = Color.red;
+        }
+        else if (isRecording)
+        {
+            if (volume < stopThreshold)
+                silenceTimer += Time.deltaTime;
+            else
+                silenceTimer = 0f;
+
+            if (silenceTimer >= silenceDuration)
+            {
+                Debug.Log("⏹️ Silence detected. Stop recording.");
+                StopRecordingAndSend();
+            }
+        }
+    }
+
+    float GetAverageVolume(float[] data)
+    {
+        float sum = 0f;
+        foreach (float sample in data)
+            sum += Mathf.Abs(sample);
+        return sum / data.Length;
+    }
+
+    void StopRecordingAndSend()
+    {
+        isRecording = false;
+        int samplePos = Microphone.GetPosition(micDevice);
+        Microphone.End(micDevice);
+
+        AudioClip finalClip = AudioClip.Create("mic_input", samplePos, 1, sampleRate, false);
+        float[] audioData = new float[samplePos];
+        recordedClip.GetData(audioData, 0);
+        finalClip.SetData(audioData, 0);
+
+        byte[] wavData = SaveWavUtility.FromAudioClip("mic_input", finalClip);
+
+        if (micIcon != null) micIcon.color = Color.white;
+
+        StartCoroutine(ShowMemoryThinking("Zoeken in geheugen…"));
+        StartCoroutine(SendWavToFlask(wavData));
+
+        recordedClip = Microphone.Start(micDevice, true, 10, sampleRate);
     }
 
     IEnumerator ShowMemoryThinking(string content)
@@ -72,41 +133,6 @@ public class MicInputUploader : MonoBehaviour
         }
 
         memoryPanelGroup.alpha = 1;
-    }
-
-    IEnumerator RecordAndSend()
-    {
-        if (Microphone.devices.Length == 0)
-        {
-            Debug.LogWarning("🎙️ No microphone found!");
-            yield break;
-        }
-        if (isRecording) yield break;
-
-        startButton.interactable = false;
-        micDevice = Microphone.devices[0];
-        recordedClip = Microphone.Start(micDevice, false, recordSeconds, sampleRate);
-        isRecording = true;
-        Debug.Log("🎙️ Recording…");
-
-        // 🔴 Turn mic icon red
-        if (micIcon != null) micIcon.color = Color.red;
-
-        yield return new WaitForSeconds(recordSeconds);
-
-        Microphone.End(micDevice);
-        isRecording = false;
-        Debug.Log("🎙️ Recording finished.");
-
-        // ⚪ Reset mic icon color
-        if (micIcon != null) micIcon.color = Color.white;
-
-        byte[] wavData = SaveWavUtility.FromAudioClip("mic_input", recordedClip);
-        startButton.interactable = true;
-
-        StartCoroutine(ShowMemoryThinking("Zoeken in geheugen…"));
-        yield return StartCoroutine(SendWavToFlask(wavData));
-        memoryPanelGroup.gameObject.SetActive(false);
     }
 
     IEnumerator SendWavToFlask(byte[] wavData)
@@ -132,40 +158,46 @@ public class MicInputUploader : MonoBehaviour
             yield break;
         }
 
-        if (subtitleText != null)
-        {
-            StopAllCoroutines(); // prevent subtitle overlap and memoryPanel conflict
-            StartCoroutine(ShowSubtitle(res.response));
-        }
+        StopAllCoroutines(); // Stop "thinking" + subtitle typing
+        StartCoroutine(ShowSubtitle(res.response));
 
         Debug.Log($"🧠 Emotion: {res.emotion}");
         Debug.Log($"🤖 Text: {res.response}");
 
-        peterOrb?.SetEmotion(res.emotion);
-        memoryPanelGroup.gameObject.SetActive(false);
-        FindObjectOfType<PeterAudioPlayer>()?.PlayBase64MP3(res.audio_base64);
-        peterOrb?.StartOrbPulse();
+        PeterPortrait portrait = FindAnyObjectByType<PeterPortrait>();
+        PeterAudioPlayer audioPlayer = FindAnyObjectByType<PeterAudioPlayer>();
+
+        portrait?.SetEmotion(res.emotion);
+        portrait?.SetTalking();
+
+        if (audioPlayer != null)
+        {
+            audioPlayer.PlayBase64MP3(res.audio_base64);
+            StartCoroutine(ResetToIdleAfterSpeech(portrait, 3.5f)); // estimate duration
+        }
+    }
+
+    IEnumerator ResetToIdleAfterSpeech(PeterPortrait portrait, float delay)
+    {
+        yield return new WaitForSeconds(delay + 0.2f);
+        portrait?.SetIdle();
     }
 
     IEnumerator ShowSubtitle(string text)
     {
         subtitleText.text = "";
         subtitleText.alpha = 1;
+        float delay = 0.04f;
 
-        float delay = 0.04f; // typing speed (seconds per character)
-
-        for (int i = 0; i < text.Length; i++)
+        foreach (char c in text)
         {
-            subtitleText.text += text[i];
+            subtitleText.text += c;
             yield return new WaitForSeconds(delay);
         }
 
         yield return new WaitForSeconds(subtitleDuration);
-
         subtitleText.alpha = 0;
     }
-
-    void OpenConfirm() => confirmPanel.SetActive(true);
 
     void KillPeter()
     {
@@ -176,8 +208,8 @@ public class MicInputUploader : MonoBehaviour
     IEnumerator EndSequence()
     {
         endPanel.SetActive(true);
-
         float t = 0f;
+
         while (t < endDuration)
         {
             t += 0.2f;
